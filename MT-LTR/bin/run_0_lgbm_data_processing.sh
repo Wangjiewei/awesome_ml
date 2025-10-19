@@ -6,10 +6,10 @@ change_permission_to_poi_data
 # change_permission_to_map_search
 
 ## EBR模型和词表（第一次上线需要）
-#
-#
-#
-#
+#hadoop fs -get /user/prod_poi_data/poi_data/ltr_exp/MX_ebr_l2_ranker/bert_token_vocab_2 ./vocab.txt
+#hadoop fs -get /user/map_search/sug_global/raw/luban_model/vector_search/2 ./
+#zip -r 1.zip 2
+#hadoop fs -put 1.zip /user/prod_poi_data/poi_data/ltr_exp/MX_ebr_l2_ranker
 
 function data_processing(){
     start_yymmdd=$1
@@ -18,36 +18,37 @@ function data_processing(){
     local_file=$4
     country_code=$5
     output_format="gbdt"
-    # 
+    # 生产训练数据（MX的EBR特征已经全量了，后面不需要拼）
     if [ "$country_code" = "MX" ];then
-        hdfs_output_path=
+        hdfs_output_path=${hdfs_output_root_path}/${country_code}_${start_yymmdd}_${end_yymmdd}/
     else
-        hdfs_output_path=
+        hdfs_output_path=${hdfs_output_root_path}/${country_code}_${start_yymmdd}_${end_yymmdd}_raw/
     fi 
     spark-submit\
         --queue ${yarn_queue} \
         --num-executors 100 \
         --executor-memory 4G \
         --executor-core 2 \
-        --conf spark \
-        --conf \
-        --archives \
-        --conf \
-        --conf \
-        --files \
-        --py-files \
-        ../src/data_processing.py
+        --conf spark.dynamicAllocation.enabled=true \
+        --conf spark.hadoop.mapreduce.input.fileinputformat.input.dir.recursion=true \
+        --archives hdfs://DClusterUS1/user/prod_poi_data/poi_data/poi_production_i18n/lib/conda.zip#mypython \
+        --conf spark.yarn.appMasterEnv.PYSPARK_PYTHON=./mypython/bin/python \
+        --conf spark.default.parallelism=1000 \
+        --files ../dictionary/norm_char.txt,../dictionary/num_dic.txt,../dictionary/pt_num.txt,../dictionary/stop_words.txt \
+        --py-files ../src/common/*,../src/operators/*,../src/config.py \
+        ../src/data_processing.py \
+        ${start_yymmdd} \
+        ${end_yymmdd} \
+        ${country_code} \
+        ${dump_feature_log_root_path} \
+        ${hdfs_output_path} \
+        ${output_partition} \
+        ${output_format}    \
 
-
-
-
-
-
-
-
-
-
-
+        if [ $? -ne 0 ];then
+            echo "data_processing failed for ${country_code} from ${start_yymmdd} to ${end_yymmdd}"
+            exit 1
+        fi
 
 }
 
@@ -125,12 +126,6 @@ do
     cat ${train_local_file}.evaluate | cut -f 1-2 | uniq | cut -f 2 > ${train_local_file}.query
     # 3) label \t feature(训练)
     cat ${tmp_file} | cut -f 4,6- >> ${train_local_file}
-
-
-
-
-
-
 
 
 
