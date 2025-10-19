@@ -111,7 +111,7 @@ for country in ${country_code_str}
 do 
     # 2.生产
     ## Train数据
-    echo ''
+    echo 'processing train data'
     data_processing 
 
     tmp_file=${local_root_path}/${country}_${train_start_yymmdd}-tmp.local.dat
@@ -130,4 +130,35 @@ do
 
 
 done
+
+
+
+
+
+
+##### 3.本地处理train data 生成三份文件
+##### 1） groupId \t gropu_len \t label （用于计算top1/3/5）
+##### cat ${train_tmp_file} | cut -f 2-4 >> ${train_local_file}.evaluate
+##### 2) group_len (训练)
+##### cat ${train_local_file}.evaluate | cut -f 1-2 | uniq | cut -f 2 > ${train_local_file}.query
+##### 3) label \t feature(训练)
+##### cat ${train_tmp_file} | cut -f 4,6- >> ${train_local_file}
+##### # 清理现场
+##### rm ${train_tmp_file}
+#####
+#####
+##### #【注意】需要分国家评估，这里手动改tmp_file的国家前缀， 默认MX
+##### 4.本地处理valid data 生成三份文件
+##### tmp_file=${local_root_path}/MX-${valid_start_yymmdd}-tmp.local.dat
+##### # 分成三份文件
+##### 1） groupId \t gropu_len \t label （用于计算top1/3/5）
+##### cat ${tmp_file} | cut -f 2-4 >> ${valid_local_file}.evaluate
+##### 2) group_len (训练)
+##### cat ${valid_local_file}.evaluate | cut -f 1-2 | uniq | cut -f 2 > ${valid_local_file}.query
+##### 3) label \t feature(训练)
+##### cat ${tmp_file} | cut -f 4,6- > ${valid_local_file}
+##### # 清理现场
+##### rm ${tmp_file}
+#####
+#####
 

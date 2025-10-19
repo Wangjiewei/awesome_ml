@@ -77,4 +77,58 @@ if __name__ == "__main__":
     
     ## deepfm ##
     elif output_format == "deepfm":
-        input_hdfs_path = os.path.join(dump_feature_log_root_path, country_code, "feature_dump", start_yyyymmdd + "_" + end_yyyymmdd)
+        input_hdfs_path = os.path.join('/' + '/'.join(hdfs_output_root_path.strip('/').split('/')[:-1]), '_'.join([country_code, start_yyyymmdd, end_yyyymmdd]))
+        print("input_hdfs_path: ", input_hdfs_path)
+        dump_feature_rdd = sc.textFile(input_hdfs_path, minPartitons=400)
+        format_deepfm(sc, spark, dump_feature_rdd, output_partitions, hdfs_output_root_path,dic_file, model_file)
+
+    ## mtr ##
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+
+    elif output_format == "mtr":
+        if file_type in ('train', 'valid'):
+            #
+            #
+            #
+            #
+            #
+
+            #
+
+            print("click_featureAll_hdfs_path: ", click_featureAll_hdfs_path)
+            click_dump_feature_rdd = sc.textFile(click_featureAll_hdfs_path + '/*', minPartitons=400) \
+                .flatMap(lambda x: parse_sample_operator.parse_sample_operator(x, country_code)) \
+                .reduceByKey(lambda x, y: x) \
+                .flapMap(lambda x: [x[1].split('\n')])
+            if is_sample_test != all:
+                case_num = int(is_sample_test)
+                total_num = click_dump_feature_rdd.count()
+                click_dump_feature_rdd = click_dump_feature_rdd.sample(withReplacement=False, fraction=1.8 * case_num / total_num, seed=12357)
+                print("click_dump_feature_rdd count after sample: ", click_dump_feature_rdd.count())
+                print("click_dump_feature_rdd sample: ", click_dump_feature_rdd.take(1))
+        else:
+            # 测试集只考虑order数据
+            click_dump_feature_rdd = None
+
+        # order解析特征
+        order_input_hdfs_path = os.path.join('/' + '/'.join(hdfs_output_root_path.strip('/').split('/')[:-1]), '_'.join([country_code, start_yyyymmdd, end_yyyymmdd]))
+        print("order_input_hdfs_path: ", order_input_hdfs_path)
+        print("hdfs_output_root_path: ", hdfs_output_root_path)
+        order_dump_feature_rdd = sc.textFile(order_input_hdfs_path, minPartitons=400)
+        print("order_dump_feature_rdd sample: ", order_dump_feature_rdd.take(1))
+        print("order_dump_feature_rdd", order_dump_feature_rdd)
+        # 编码去重 & 落盘
+        print("hdfs_output_root_path: ", hdfs_output_root_path)
+        format_mtr_v1(sc, spark, click_dump_feature_rdd, order_dump_feature_rdd, output_partitions, hdfs_output_root_path, dict_file, model_file, file_type, country_code, is_sample_test, vocab_file, feature_stats)
+    else:
+        raise ValueError("output_format must in ('gbdt', 'deepfm', 'mtr'), but %s"output_format)
+
+        
