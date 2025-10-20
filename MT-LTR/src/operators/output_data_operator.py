@@ -1160,3 +1160,56 @@ def format_twinbert(sc, spark, dump_feature_rdd, out_partitions, save_path, outf
             .read.format("tfrecords").option("recordType", "Example").option("codec", "org.apache.hadoop.io.compress.GzipCodec") \
             .load(save_path + '/*') \
             .show(n=1, truncate=False)
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def format_mtr_v1(sc, spark, click_dump_feature_rdd, order_dump_feature_rdd, out_partition, save_path, dict_file, model_file, file_type, country_code, is_sample_test, vocab_file, feature_stats):
+    '''pairwise loss格式化mtr样本（初版）
+    '''
+    def _parse_sample(one_part_data, data_type): # format_mtr_v1
+        def _load_feature_stats(feature_stats_file):
+            res = {}
+            for line in open(feature_stats_file):
+                line = line.strip().split("\t")
+                if len(line) != 5: continue
+                (fkey, fmean, fstd, fmin, fmax) = line[:5]
+                res[fkey] = [fmean, fstd, fmin, fmax]
+            return res
+        
+        '''输入格式
+        parse_info \t searchid||uid \t group_len \t label \t show_pos \t idx1:feat1 \t idx2:feat2 \t ...
+        '''
+        import numpy as np
+        import lightgbm as lgbm
+        import tokenization
+        tokenizer = tokenization.FullTokenizer(vocab_file=vocab_file, do_lower_case=True)
+        def _process_batch_data(batch_data, one_hot_offset, gbm_model): # format_mtr_v1
+
+            '''构造特征
+            '''
+            def __encode_raw_feat(batch_data):
+                '''处理原始信息编码
+                1） 从第一个字段获得原始信息
+                2）对原始特征编码
+                '''
+                ret = []
+                for parse_info in batch_data:
+                    try:
+                        items = eval(parse_info)
+                        # 字段强校验
+                        assert len(items) >= len(Config.QueryFeatKey + Config.PoiFeatKey), "len(items) < len(Config.QueryFeatKey + Config.PoiFeatKey) %d < %d" % (len(items), len(Config.QueryFeatKey + Config.PoiFeatKey))
+                        # 对原始特征编码
+                        raw_feat_encode = get_id_feat(parse_info, sparse_dict, Config.QueryFeatKey + Config.PoiFeatKey)
