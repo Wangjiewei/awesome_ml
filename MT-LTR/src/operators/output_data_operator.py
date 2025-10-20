@@ -1213,3 +1213,299 @@ def format_mtr_v1(sc, spark, click_dump_feature_rdd, order_dump_feature_rdd, out
                         assert len(items) >= len(Config.QueryFeatKey + Config.PoiFeatKey), "len(items) < len(Config.QueryFeatKey + Config.PoiFeatKey) %d < %d" % (len(items), len(Config.QueryFeatKey + Config.PoiFeatKey))
                         # 对原始特征编码
                         raw_feat_encode = get_id_feat(parse_info, sparse_dict, Config.QueryFeatKey + Config.PoiFeatKey)
+                        ret.append(raw_feat_encode)
+                    except:
+                        # click数据存在部分null字段的情况
+                        ret.append('')
+                return ret
+            
+            def __get_feat_arr(batch_data):
+                '''libSVM转array格式， show_pos占位idx=0
+                '''
+                batch_feat = []
+                for data in batch_data:
+                    one_feat = [0.0 for _ in range(Config.DumpFeatureCols+1)]
+                    one_feat[0] = data[0]
+                    for d in data[1:]:
+                        idx, feat = d.split(":")
+                        one_feat[int(idx)] = feat
+                    batch_feat.append(one_feat)
+                ret = np.array(batch_feat, dtype=np.float32)
+                return ret
+            
+            def z_score_norm(fea_idx, raw_feat):
+                res = raw_feat
+                #fea_key = country_code + '_' + str(fea_idx) # 西语三国独立做归一化，效果不好， 改回统一归一化
+                if(str(fea_idx) in feature_stats_dic):
+                    #feature_stats_dic
+                    meanx, stdx, minx, maxx = feature_stats_dic[str(fea_idx)]
+                    res = (float(raw_feat) - float(meanx)) / float(stdx) if float(stdx) > 1e-6 else 0.0
+                return res
+            
+            def __get_dense_feat_arr(batch_data): # format_mtr_v1
+                '''libSVM转array格式， show_pos占位idx=0, 只保留删减后的90维特征: Config.GBDTTop90FeatList
+                '''
+
+                batch_feat = {}
+                for data in batch_data:
+                    one_feat = [0.0 for _ in range(len(Config.DumpFeatureCols)+1)]
+                    one_feat[0] = data[0]
+                    for d in data[1:]:
+                        idx, feat = d.split(":")
+                        one_feat[int(idx)] = float(feat)  # float
+                    
+                    # top90 featrues
+                    batch_data.setdefault('GBDTTop90FeatList', [])
+                    dense_feature = []
+                    for j in range(len(Config.GBDTTop90FeatList)):
+                        feat_idx = int(Config.GBDTTop90FeatList[j])
+                        raw_feature = one_feat[feat_idx]
+                        norm_feature = z_score_norm(feat_idx, raw_feature)
+                        dense_feature.append(norm_feature)
+                    batch_feat['GBDTTop90FeatList'].append(dense_feature)
+
+                    for featGroup in Config.GBDTTopFeatDic:
+                        batch_data.setdefault(featGroup, [])
+                        dense_feature = []
+                        featGroupList = Config.GBDTTopFeatDic[featGroup]
+                        for j in range(len(featGroupList)):
+                            feat_idx = int(featGroupList[j])
+                            raw_feature = one_feat[feat_idx]
+                            #需要对特征处理, z-score归一化
+                            norm_feature = z_score_norm(feat_idx, raw_feature)
+                            dense_feature.append(norm_feature)
+                        batch_feat[featGroup].append(dense_feature)
+                #ret = np.array(batch_feat, dtype=np.float32)
+                gBBDTToop90FeatArr = np.array(batch_feat['GBDTTop90FeatList'], dtype=np.float32)
+                #
+                #
+                #
+                #
+                #
+                #
+                #
+                return gBBDTToop90FeatArr #, 
+            
+            # process_batch_data入口, format_mtr_v1
+            ## 原始编码特征 ##
+            raw_feat = [d.split('\t')[0] for d in batch_data]
+            raw_feat_encode = __encode_raw_feat(raw_feat)
+            ## lgbm特征 ##
+            # 原特征
+            traceid_uid = np.array([d.split('\t')[1] for d in batch_data]).astype(str).reshape(-1, 1)
+            group_len = np.array([d.split('\t')[2] for d in batch_data]).astype(int).reshape(-1, 1)
+            if data_type == "click":
+                click_label = (np.array([int(d.split('\t')[3]) for d in batch_data]).astype(int) - 1).reshape(-1, 1)
+                order_label = np.zeros(click_label.shape).astype(int)
+            elif data_type == "order":
+                order_label = (np.array([int(d.split('\t')[3]) for d in batch_data]).astype(int) - 1).reshape(-1, 1)
+                click_label = order_label
+            else:
+                raise ValueError("data_type must in (click, order), but is %s"%data_type)
+            gbdt_feat = __get_feat_arr([d.split('\t')[4:] for d in batch_data])
+            #
+            #
+            gBDTTop90FeatList = __get_dense_feat_arr([d.split('\t')[4:] for d in batch_data])
+            # 算leaf节点编码特征
+            one_hot_offset_arr = np.array(one_hot_offset)
+            pred_leaf = gbm_model.predict(gbdt_feat, pred_leaf=True, num_iteration=Config.LeafTreeLimit)
+            one_hot_pred_leaf = pred_leaf + one_hot_offset_arr 
+            # 算tree score特征
+            tree_scores = gbm_model.predict(gbdt_feat)
+            # query + name + address token化
+            # 
+            # 
+            # 
+            # 
+            # 
+            # 
+            # 
+            #   
+
+            #
+            #
+            #
+            #
+
+            ## 转落盘格式 ##
+            ret = []
+            for i in range(traceid_uid.shape[0]):
+                one_data = [data_type, str(traceid_uid[i][0]), int(group_len[i][0]), int(click_label[i][0]), int(order_label[i][0])]
+                one_data.extend(raw_feat_encode[i])
+                one_data.append(one_hot_pred_leaf[i].tolist())
+                one_data.append(float(tree_scores[i]))
+                one_data.append(gBDTTop90FeatList[i].tolist()) # gbdt top90特征
+                #
+                #
+                #
+                #
+                #
+                #
+                #
+                #
+                # 包一层key后面用来去重
+                ret.append([traceid_uid[i][0], [one_data]])
+            return ret
+            
+        # _parse_sample入口, format_mtr_v1
+        # 加载词表
+        sparse_dict = get_sparse_dict(dict_file)
+        feature_stats_dic = _load_feature_stats(feature_stats)
+        # 加载模型
+        gbm_model = lgbm.Booster(model_file=model_file)
+        one_hot_offset = get_gbm_num_leaves(gbm_model)
+        # 分批处理
+        BATCH_SIZE = 100000
+        ret = []
+        read_buf = []
+        for idx, l in enumerate(one_part_data):
+            read_buf.append(l.strip())
+            if idx % BATCH_SIZE == 0:
+                ret_data = _process_batch_data(read_buf, one_hot_offset, gbm_model)
+                ret.extend(ret_data)
+                read_buf = []
+        if len(read_buf) > 0:
+            ret_data = _process_batch_data(read_buf, one_hot_offset, gbm_model)
+            ret.extend(ret_data)
+            
+        return ret
+    
+    def _get_out_schema(): # format_mtr_v1
+        '''拼DataFrame Schema (注意和前面特征顺序一致)
+        由于是pairwise loss， 因此对于训练集来说click_label和order_label没用，只有测试的时候游泳
+        '''
+        struct_fields = [
+            StructField("data_type", StringType(), False), 
+            StructField("traceid_uid", StringType(), False),
+            StructField("group_len", IntegerType(), False),
+            StructField("click_label", IntegerType(), False),
+            StructField("order_label", IntegerType(), False),
+        ]
+        query_field = get_struct_field(Config.QueryFeatKey, "")
+        pos_poi_field = get_struct_field(Config.PoiFeatKey, "pos")
+        neg_poi_field = get_struct_field(Config.PoiFeatKey, "neg")
+        struct_fields.extend(query_field)
+        struct_fields.extend(pos_poi_field)
+        #struct_fields.extend(StructField("pos_token_ids", ArrayType(IntegerType(), False)))
+        #struct_fields.extend(StructField("pos_segment_ids", ArrayType(IntegerType(), False)))
+        #struct_fields.extend(StructField("pos_mask_ids", ArrayType(IntegerType(), False)))
+        struct_fields.extend(neg_poi_field)
+        #struct_fields.extend(StructField("neg_token_ids", ArrayType(IntegerType(), False)))
+        #struct_fields.extend(StructField("neg_segment_ids", ArrayType(IntegerType(), False)))
+        #struct_fields.extend(StructField("neg_mask_ids", ArrayType(IntegerType(), False)))
+        return StructType(struct_fields), len(struct_fields)
+    
+    def _flatMap_train_valid(x, dump_len): # format_mtr_v1
+        '''一条query'''
+        ret = []
+        # 拉字段
+        search_uid = x[0]
+        poi_list = x[1][1] if x[1][1] else x[1][0]
+        # 强校验 & 分流正负样本
+        pos, neg = [], []
+        for poi in poi_list:
+            # (1)data_type (2)traceid_uid (3)group_len (4)click_label (5)order_label <QueryFeatKey> <PoiFeatKey> (6)one_hot_pred_leaf (7)tree_scores (8-15)dense_gbdt_feat (16)token_ids (17)segment_ids (18)masked_ids
+            if len(poi) != len(Config.QueryFeatKey + Config.PoiFeatKey) + 8:
+                return ret
+            if int(poi[3]) == 1:
+                pos.append(poi)
+            else:
+                neg.append(poi)
+        #组装pair
+        for p in pos:
+            for n in neg:
+                one_data = []
+                one_data.append(p)
+                one_data.append(n[5 + len(Config.QueryFeatKey):])
+                assert len(one_data) == dump_len, "len(one_data) != dump_len %d != %d" % (len(one_data), dump_len)
+                ret.append(one_data)
+        
+        return ret
+    
+    def _flatMap_test(x, dump_len): #format_mtr_v1
+        '''一条query'''
+        ret = []
+        # 拉字段
+        search_uid = x[0]
+        poi_list = x[1]
+        # 强校验 & 分流正负样本
+        pos, neg = [], []
+        for poi in poi_list:
+            # (1)data_type (2)traceid_uid (3)group_len (4)click_label (5)order_label <QueryFeatKey> <PoiFeatKey> (6)one_hot_pred_leaf (7)tree_scores (8-15)dense_gbdt_feat (16)token_ids (17)segment_ids (18)masked_ids
+            if len(poi) != len(Config.QueryFeatKey + Config.PoiFeatKey) + 8:
+                return ret
+            if int(poi[3]) == 1:
+                pos.append(poi)
+            else:
+                neg.append(poi)
+        #组装pair
+        for p in pos + neg:
+            one_data = []
+            one_data.append(p)
+            one_data.append(p[5 + len(Config.QueryFeatKey):])
+            assert len(one_data) == dump_len, "len(one_data) != dump_len %d != %d" % (len(one_data), dump_len)
+            ret.append(one_data)
+        
+        return ret
+    
+    #format_mtr_v1 入口
+    if file_type in ('train', 'valid'):
+        # 生产训练集和验证集
+        # 算gbdt叶子编码和打分
+        click_encode_rdd = click_dump_feature_rdd \
+            .mapPartitions(lambda x: _parse_sample(x, "click")) \
+            .reduceByKey(lambda x1, x2: x1 + x2)
+        
+        order_encode_rdd = order_dump_feature_rdd \
+            .mapPartitions(lambda x: _parse_sample(x, "order")) \
+            .reduceByKey(lambda x1, x2: x1 + x2)
+        
+        # 去重（click包含全部order信息）
+        schema, dump_len = _get_out_schema()
+        print('format_mtr_v1 schema:', schema)
+        eval_rdd = click_encode_rdd\
+            .leftOuterJoin(order_encode_rdd) 
+        print('eval_rdd count:', eval_rdd.count())
+        if is_sample_test != 'all':
+            case_num = int(is_sample_test)
+            total_num  = eval_rdd.count()
+            print("")
+            print("")
+            eval_rdd = eval_rdd.sample(withReplacement=False, fraction=1.0 * case_num / total_num, seed=12357)
+            rdd = eval_rdd.flatMap(lambda x: _flatMap_train_valid(x, dump_len))
+        else:
+            rdd = eval_rdd.flatMap(lambda x: _flatMap_train_valid(x, dump_len))
+    else:
+        # 生产测试集
+        schema, dump_len = _get_out_schema()
+        #
+        eval_rdd = order_dump_feature_rdd \
+            .mapPartitions(lambda x: _parse_sample(x, "order")) \
+            .reduceByKey(lambda x1, x2: x1 + x2)
+        
+        if is_sample_test != 'all':
+            case_num = int(is_sample_test)
+            total_num  = eval_rdd.count()
+            print("")
+            print("")
+            eval_rdd = eval_rdd.sample(withReplacement=False, fraction=1.0 * case_num / total_num, seed=12357)
+            rdd = eval_rdd.flatMap(lambda x: _flatMap_test(x, dump_len))
+            print("")
+
+    # format_mtr_v1
+    # 转tfrecords格式落盘
+    print('final rdd :', rdd.take(2))
+    spark \
+        .createDataFrame(rdd, schema) \
+        .repartition(out_partition) \
+        .write.mode("overwrite").format("tfrecords").option("recordType", "Example").option("codec", "org.apache.hadoop.io.compress.GzipCodec") \
+        .save(save_path)
+    
+    #验证落盘格式
+    df = spark \
+        .read.format("tfrecords").option("recordType", "Example").option("codec", "org.apache.hadoop.io.compress.GzipCodec") \
+        .load(save_path + '/*')
+    #打印前20行
+    df.show()
+    # 统计数量
+    df.agg(countDistinct(col("traceid_uid")).alias("traceid_uid")).show()
