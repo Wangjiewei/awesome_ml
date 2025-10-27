@@ -242,3 +242,10 @@ def LoadDataFromHive(spark, start_date, end_date, country_code):
     print(sql)
     data_rdd = spark.sql(sql).rdd.map(lambda x: "\t".join( [ x["search_key"], x["query_info"], x["poi_info"]]))
 
+
+def get_norm_str(raw_str):
+    from normalizater import Normalizater
+    nor = Normalizater()
+    norm_str = nor.do_normalizate(raw_str)
+    return norm_str
+
