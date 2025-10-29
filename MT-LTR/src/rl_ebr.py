@@ -6,7 +6,7 @@ description:
     * action: poi list
     * reward: click + ndcg(relevance)
     * model: reinforce + twinbert + PER
-author: clzhang
+author: 
 date: 2022/10/13
 """
 
